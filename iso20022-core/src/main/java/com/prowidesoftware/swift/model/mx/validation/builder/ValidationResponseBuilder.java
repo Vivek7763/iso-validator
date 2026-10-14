@@ -24,13 +24,18 @@ public final class ValidationResponseBuilder {
         // Prevent instantiation
     }
 
+    public static ValidationResponse build(ISOParserResult result) {
+        return build(result, result != null ? result.getSemanticResult() : null);
+    }
+
     public static ValidationResponse build(ISOParserResult result, SemanticValidationResult semanticResult) {
-        String messageId =
+        String messageType =
                 result.getIdentifier() != null ? result.getIdentifier().getFullMessageType() : null;
+        String businessMessageId = result.getBusinessMessageId();
         List<FssError> errors = new ArrayList<>();
         ResponseStatus status = determineStatusAndMapErrors(result, semanticResult, errors);
 
-        return new ValidationResponse(messageId, status, errors);
+        return new ValidationResponse(messageType, businessMessageId, status, errors);
     }
 
     private static ResponseStatus determineStatusAndMapErrors(
@@ -54,15 +59,18 @@ public final class ValidationResponseBuilder {
             return ResponseStatus.SYSTEM_ERROR;
         }
 
-        // 3. Schema Not Found (Non-blocking warning)
+        // 3. Schema Not Found (Schema is unavailable - cannot mark as valid)
         if (result.getSchemaStatus() == ISOParserResult.SchemaValidationStatus.SCHEMA_NOT_FOUND) {
             errors.add(new FssError(
                     ErrorCategory.TECHNICAL,
                     "SCHEMA_NOT_FOUND",
                     "No XSD registered for message type: "
-                            + result.getIdentifier().getFullMessageType(),
+                            + (result.getIdentifier() != null
+                                    ? result.getIdentifier().getFullMessageType()
+                                    : "unknown"),
                     null,
-                    "WARNING"));
+                    "FATAL"));
+            return ResponseStatus.SCHEMA_UNAVAILABLE;
         }
 
         // 4. XSD Validation Failures
@@ -76,11 +84,28 @@ public final class ValidationResponseBuilder {
         }
 
         // 5. Model Parsing Failures
-        if (result.getModelStatus() == ISOParserResult.ModelParsingStatus.PROWIDE_MODEL_UNAVAILABLE_OR_PARSE_ERROR) {
+        if (result.getModelStatus() == ISOParserResult.ModelParsingStatus.PARSE_ERROR
+                || result.getModelDetail() == ISOParserResult.ModelParsingDetail.PARSE_ERROR) {
+            errors.add(new FssError(
+                    ErrorCategory.TECHNICAL,
+                    "PARSE_ERROR",
+                    "Prowide JAXB model failed to parse XML message",
+                    null,
+                    "FATAL"));
+            return ResponseStatus.SYSTEM_ERROR;
+        }
+
+        if (result.getModelStatus() == ISOParserResult.ModelParsingStatus.MODEL_UNAVAILABLE
+                || result.getModelStatus()
+                        == ISOParserResult.ModelParsingStatus.PROWIDE_MODEL_UNAVAILABLE_OR_PARSE_ERROR
+                || result.getModelDetail() == ISOParserResult.ModelParsingDetail.MODEL_UNAVAILABLE) {
             errors.add(new FssError(
                     ErrorCategory.TECHNICAL,
                     "MODEL_UNAVAILABLE",
-                    "Prowide JAXB model unavailable or internal parse error",
+                    "Prowide JAXB model unavailable for message type: "
+                            + (result.getIdentifier() != null
+                                    ? result.getIdentifier().getFullMessageType()
+                                    : "unknown"),
                     null,
                     "FATAL"));
             return ResponseStatus.SYSTEM_ERROR;
@@ -107,12 +132,20 @@ public final class ValidationResponseBuilder {
             if (!semanticResult.getTechnicalErrors().isEmpty()) {
                 return ResponseStatus.SYSTEM_ERROR;
             }
-            if (semanticResult.hasFailures()) {
+            if (semanticResult.hasErrors()) {
                 return ResponseStatus.REJECTED;
             }
         }
 
-        // If we reach here, no hard rejections or fatal system errors occurred.
+        // Propagate structural warnings (such as BAH test fixture warning or schema warnings)
+        for (ValidationError ve : result.getValidationErrors()) {
+            if ("WARNING".equalsIgnoreCase(ve.getSeverity()) || "WARN".equalsIgnoreCase(ve.getSeverity())) {
+                String loc = ve.getLine() > 0 ? "Line: " + ve.getLine() + ", Column: " + ve.getColumn() : null;
+                errors.add(new FssError(ErrorCategory.STRUCTURAL, "XSD_WARNING", ve.getMessage(), loc, "WARNING"));
+            }
+        }
+
+        // If we reach here, no hard rejections, missing schema, or fatal system errors occurred.
         return ResponseStatus.VALID;
     }
 }

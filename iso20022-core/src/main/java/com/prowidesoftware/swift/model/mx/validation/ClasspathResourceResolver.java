@@ -9,18 +9,36 @@ public class ClasspathResourceResolver implements LSResourceResolver {
 
     @Override
     public LSInput resolveResource(String type, String namespaceURI, String publicId, String systemId, String baseURI) {
-        if (systemId != null
-                && (systemId.startsWith("http://")
-                        || systemId.startsWith("https://")
-                        || systemId.startsWith("file://"))) {
-            // Block external remote resolution for security
+        if (systemId != null) {
+            String lower = systemId.toLowerCase();
+            if (lower.startsWith("http://")
+                    || lower.startsWith("https://")
+                    || lower.startsWith("file:")
+                    || lower.startsWith("ftp://")
+                    || lower.startsWith("jar:")
+                    || lower.startsWith("netdoc:")) {
+                // Block external remote/file resolution for security
+                throw new org.w3c.dom.DOMException(
+                        org.w3c.dom.DOMException.NOT_SUPPORTED_ERR,
+                        "External resource resolution blocked for security: " + systemId);
+            }
+            if (systemId.contains("..")) {
+                // Block path traversal out of classpath resource root
+                throw new org.w3c.dom.DOMException(
+                        org.w3c.dom.DOMException.NOT_SUPPORTED_ERR, "Path traversal blocked for security: " + systemId);
+            }
+        }
+
+        if (systemId == null || systemId.trim().isEmpty()) {
             return null;
         }
 
-        // We assume included schemas are placed in the same classpath location or a specific one.
-        // For testing, let's just lookup by systemId from root classpath.
+        // Check /schemas/ path first, then fall back to root classpath
         String path = systemId.startsWith("/") ? systemId : "/schemas/" + systemId;
         InputStream is = getClass().getResourceAsStream(path);
+        if (is == null && !systemId.startsWith("/")) {
+            is = getClass().getResourceAsStream("/" + systemId);
+        }
         if (is != null) {
             return new LSInputImpl(publicId, systemId, is);
         }

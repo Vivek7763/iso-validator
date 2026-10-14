@@ -3,6 +3,8 @@ package com.prowidesoftware.swift.model.mx.validation.semantic;
 import com.prowidesoftware.swift.model.mx.AbstractMX;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import javax.xml.datatype.DatatypeFactory;
 import org.springframework.core.convert.support.DefaultConversionService;
 import org.springframework.expression.*;
@@ -14,6 +16,7 @@ import org.springframework.expression.spel.support.StandardTypeConverter;
 public class SpELRuleEvaluator implements RuleEvaluator {
     private final ExpressionParser parser = new SpelExpressionParser();
     private final EvaluationContext context;
+    private final Map<String, Expression> expressionCache = new ConcurrentHashMap<>();
 
     public SpELRuleEvaluator() {
         DefaultConversionService conversionService = new DefaultConversionService();
@@ -57,6 +60,10 @@ public class SpELRuleEvaluator implements RuleEvaluator {
 
             @Override
             public boolean canCompare(Object left, Object right) {
+                if ((left instanceof Enum && right instanceof String)
+                        || (left instanceof String && right instanceof Enum)) {
+                    return true;
+                }
                 if (left != null
                         && right instanceof String
                         && (left.getClass().getName().startsWith("java.time.")
@@ -68,6 +75,12 @@ public class SpELRuleEvaluator implements RuleEvaluator {
 
             @Override
             public int compare(Object left, Object right) throws EvaluationException {
+                if (left instanceof Enum && right instanceof String) {
+                    return ((Enum<?>) left).name().compareTo((String) right);
+                }
+                if (left instanceof String && right instanceof Enum) {
+                    return ((String) left).compareTo(((Enum<?>) right).name());
+                }
                 if (left != null
                         && right instanceof String
                         && (left.getClass().getName().startsWith("java.time.")
@@ -79,7 +92,83 @@ public class SpELRuleEvaluator implements RuleEvaluator {
             }
         };
 
-        // Wrap the strictly secured SimpleEvaluationContext to inject the custom TypeComparator
+        // Safe Method Resolver allowing ONLY zero-arg value(), name(), toString() on Enums
+        // and zero-arg trim(), isEmpty(), length(), toLowerCase(), toUpperCase() on Strings
+        MethodResolver safeEnumMethodResolver = (ctx, targetObject, name, argumentTypes) -> {
+            if (targetObject instanceof Enum && argumentTypes.isEmpty()) {
+                if ("value".equals(name) || "name".equals(name) || "toString".equals(name)) {
+                    try {
+                        java.lang.reflect.Method method =
+                                targetObject.getClass().getMethod(name);
+                        return (evalCtx, target, args) -> {
+                            try {
+                                return new TypedValue(method.invoke(target, args));
+                            } catch (Exception ex) {
+                                throw new AccessException("Failed to invoke " + name + " on enum", ex);
+                            }
+                        };
+                    } catch (NoSuchMethodException e) {
+                        if ("value".equals(name)) {
+                            return (evalCtx, target, args) -> new TypedValue(((Enum<?>) target).name());
+                        }
+                    }
+                }
+            } else if (targetObject instanceof String && argumentTypes.isEmpty()) {
+                if ("trim".equals(name)
+                        || "isEmpty".equals(name)
+                        || "length".equals(name)
+                        || "toLowerCase".equals(name)
+                        || "toUpperCase".equals(name)) {
+                    try {
+                        java.lang.reflect.Method method = String.class.getMethod(name);
+                        return (evalCtx, target, args) -> {
+                            try {
+                                return new TypedValue(method.invoke(target, args));
+                            } catch (Exception ex) {
+                                throw new AccessException("Failed to invoke " + name + " on String", ex);
+                            }
+                        };
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+            return null;
+        };
+
+        // Safe Enum Property Accessor allowing .value and .name property reads on Enums
+        PropertyAccessor enumPropertyAccessor = new PropertyAccessor() {
+            @Override
+            public Class<?>[] getSpecificTargetClasses() {
+                return new Class<?>[] {Enum.class};
+            }
+
+            @Override
+            public boolean canRead(EvaluationContext context, Object target, String name) {
+                return target instanceof Enum && ("value".equals(name) || "name".equals(name));
+            }
+
+            @Override
+            public TypedValue read(EvaluationContext context, Object target, String name) {
+                if (target instanceof Enum) {
+                    return new TypedValue(((Enum<?>) target).name());
+                }
+                return TypedValue.NULL;
+            }
+
+            @Override
+            public boolean canWrite(EvaluationContext context, Object target, String name) {
+                return false;
+            }
+
+            @Override
+            public void write(EvaluationContext context, Object target, String name, Object newValue) {}
+        };
+
+        List<PropertyAccessor> propertyAccessors = new java.util.ArrayList<>();
+        propertyAccessors.add(enumPropertyAccessor);
+        propertyAccessors.addAll(delegate.getPropertyAccessors());
+
+        // Wrap the strictly secured SimpleEvaluationContext to inject the custom TypeComparator and safe Enum resolvers
         this.context = new EvaluationContext() {
             @Override
             public TypedValue getRootObject() {
@@ -88,7 +177,7 @@ public class SpELRuleEvaluator implements RuleEvaluator {
 
             @Override
             public List<PropertyAccessor> getPropertyAccessors() {
-                return delegate.getPropertyAccessors();
+                return propertyAccessors;
             }
 
             @Override
@@ -98,7 +187,7 @@ public class SpELRuleEvaluator implements RuleEvaluator {
 
             @Override
             public List<MethodResolver> getMethodResolvers() {
-                return delegate.getMethodResolvers();
+                return java.util.Collections.singletonList(safeEnumMethodResolver);
             }
 
             @Override
@@ -151,8 +240,11 @@ public class SpELRuleEvaluator implements RuleEvaluator {
 
     @Override
     public boolean evaluate(SemanticRuleDefinition rule, AbstractMX model) {
+        if (rule == null || rule.getExpression() == null) {
+            throw new IllegalArgumentException("Rule or expression cannot be null");
+        }
         try {
-            Expression exp = parser.parseExpression(rule.getExpression());
+            Expression exp = expressionCache.computeIfAbsent(rule.getExpression(), parser::parseExpression);
             Boolean result = exp.getValue(context, model, Boolean.class);
             return result != null && result;
         } catch (Exception e) {

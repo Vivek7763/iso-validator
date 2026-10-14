@@ -15,12 +15,22 @@ public class MessageStructureInfo {
     private final ISOMessageIdentifier documentIdentifier;
     private final ISOMessageIdentifier appHdrIdentifier;
     private final String msgDefIdr;
+    private final String businessMessageId;
 
     public MessageStructureInfo(
             ISOMessageIdentifier documentIdentifier, ISOMessageIdentifier appHdrIdentifier, String msgDefIdr) {
+        this(documentIdentifier, appHdrIdentifier, msgDefIdr, null);
+    }
+
+    public MessageStructureInfo(
+            ISOMessageIdentifier documentIdentifier,
+            ISOMessageIdentifier appHdrIdentifier,
+            String msgDefIdr,
+            String businessMessageId) {
         this.documentIdentifier = documentIdentifier;
         this.appHdrIdentifier = appHdrIdentifier;
         this.msgDefIdr = msgDefIdr;
+        this.businessMessageId = businessMessageId;
     }
 
     public ISOMessageIdentifier getDocumentIdentifier() {
@@ -35,9 +45,13 @@ public class MessageStructureInfo {
         return msgDefIdr;
     }
 
+    public String getBusinessMessageId() {
+        return businessMessageId;
+    }
+
     public static MessageStructureInfo parse(String xml) {
         if (xml == null || xml.isBlank()) {
-            return new MessageStructureInfo(null, null, null);
+            return new MessageStructureInfo(null, null, null, null);
         }
         try {
             XMLReader reader = SafeXmlUtils.reader(true, null);
@@ -48,9 +62,10 @@ public class MessageStructureInfo {
             } catch (EarlyExitException e) {
                 // Expected when we have found everything
             }
-            return new MessageStructureInfo(handler.docId, handler.appHdrId, handler.msgDefIdr);
+            String bizId = handler.bizMsgIdr != null ? handler.bizMsgIdr : handler.docMsgId;
+            return new MessageStructureInfo(handler.docId, handler.appHdrId, handler.msgDefIdr, bizId);
         } catch (Exception e) {
-            return new MessageStructureInfo(null, null, null);
+            return new MessageStructureInfo(null, null, null, null);
         }
     }
 
@@ -62,11 +77,17 @@ public class MessageStructureInfo {
         ISOMessageIdentifier docId = null;
         ISOMessageIdentifier appHdrId = null;
         String msgDefIdr = null;
+        String bizMsgIdr = null;
+        String docMsgId = null;
+
         boolean inMsgDefIdr = false;
-        StringBuilder msgDefBuilder = new StringBuilder();
+        boolean inBizMsgIdr = false;
+        boolean inDocMsgId = false;
+        StringBuilder textBuilder = new StringBuilder();
 
         boolean foundDoc = false;
         boolean foundAppHdr = false;
+        int docDepth = 0;
 
         @Override
         public void startElement(String uri, String localName, String qName, Attributes attributes)
@@ -76,7 +97,6 @@ public class MessageStructureInfo {
                     docId = ISOMessageIdentifier.fromNamespace(uri);
                 }
                 foundDoc = true;
-                checkExit();
             } else if ("AppHdr".equals(localName)) {
                 if (uri != null && !uri.isEmpty()) {
                     appHdrId = ISOMessageIdentifier.fromNamespace(uri);
@@ -84,29 +104,58 @@ public class MessageStructureInfo {
                 foundAppHdr = true;
             } else if (foundAppHdr && "MsgDefIdr".equals(localName)) {
                 inMsgDefIdr = true;
-                msgDefBuilder.setLength(0);
+                textBuilder.setLength(0);
+            } else if (foundAppHdr && "BizMsgIdr".equals(localName)) {
+                inBizMsgIdr = true;
+                textBuilder.setLength(0);
+            } else if (foundDoc && docMsgId == null && "MsgId".equals(localName)) {
+                inDocMsgId = true;
+                textBuilder.setLength(0);
+            }
+
+            if (foundDoc) {
+                docDepth++;
             }
         }
 
         @Override
         public void characters(char[] ch, int start, int length) throws SAXException {
-            if (inMsgDefIdr) {
-                msgDefBuilder.append(ch, start, length);
+            if (inMsgDefIdr || inBizMsgIdr || inDocMsgId) {
+                textBuilder.append(ch, start, length);
             }
         }
 
         @Override
         public void endElement(String uri, String localName, String qName) throws SAXException {
             if (inMsgDefIdr && "MsgDefIdr".equals(localName)) {
-                msgDefIdr = msgDefBuilder.toString().trim();
+                msgDefIdr = textBuilder.toString().trim();
                 inMsgDefIdr = false;
+            } else if (inBizMsgIdr && "BizMsgIdr".equals(localName)) {
+                bizMsgIdr = textBuilder.toString().trim();
+                inBizMsgIdr = false;
+            } else if (inDocMsgId && "MsgId".equals(localName)) {
+                docMsgId = textBuilder.toString().trim();
+                inDocMsgId = false;
+                checkExit();
+            } else if ("Document".equals(localName)) {
+                foundDoc = false;
+                checkExit();
+            }
+
+            if (foundDoc && docDepth > 0) {
+                docDepth--;
+            }
+            if (docDepth > 10) {
+                // Safety bound if MsgId is deep or not present
                 checkExit();
             }
         }
 
         private void checkExit() throws EarlyExitException {
-            if (foundDoc && (appHdrId == null || msgDefIdr != null)) {
-                throw new EarlyExitException();
+            if (docId != null && (appHdrId == null || (msgDefIdr != null && bizMsgIdr != null))) {
+                if (docMsgId != null || !foundDoc || docDepth > 5) {
+                    throw new EarlyExitException();
+                }
             }
         }
     }

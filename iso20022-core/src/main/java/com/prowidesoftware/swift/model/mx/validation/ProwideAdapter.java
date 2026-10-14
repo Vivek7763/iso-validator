@@ -40,7 +40,8 @@ public final class ProwideAdapter {
             Optional<MxId> mxIdOpt = MxParseUtils.identifyMessage(xml);
             if (mxIdOpt.isPresent()) {
                 // MxId.id() returns the full type token (e.g. "pacs.008.001.14")
-                return ISOMessageIdentifier.fromNamespace(mxIdOpt.get().id());
+                return ISOMessageIdentifier.fromNamespace(
+                        ISOMessageIdentifier.ISO20022_URN_PREFIX + mxIdOpt.get().id());
             }
         } catch (Exception e) {
             // Prowide can throw on severely malformed XML; treat as unidentifiable
@@ -58,6 +59,53 @@ public final class ProwideAdapter {
 
     public static void resetParseToModelCallCount() {
         parseToModelCallCount.set(0);
+    }
+
+    /**
+     * Determines whether a generated Prowide MX model class exists on the runtime classpath
+     * for the given message identifier.
+     *
+     * @param identifier the message identifier
+     * @return true if the model class is available, false otherwise
+     */
+    public static boolean isModelAvailable(ISOMessageIdentifier identifier) {
+        return getModelClass(identifier) != null;
+    }
+
+    /**
+     * Resolves the Prowide generated MX model class for the given identifier, or returns null if not found.
+     *
+     * @param identifier the message identifier
+     * @return the model class or null
+     */
+    @SuppressWarnings("unchecked")
+    public static Class<? extends AbstractMX> getModelClass(ISOMessageIdentifier identifier) {
+        if (identifier == null || !identifier.isWellFormed()) {
+            return null;
+        }
+        try {
+            MxId mxId = new MxId(
+                    identifier.getBusinessArea(),
+                    identifier.getMessageFunction(),
+                    identifier.getVariant(),
+                    identifier.getVersion());
+            String subPackage =
+                    mxId.getBusinessProcess() == com.prowidesoftware.swift.model.MxBusinessProcess.xsys ? ".sys" : "";
+            String fqn = "com.prowidesoftware.swift.model.mx" + subPackage + ".Mx" + mxId.camelized();
+            ClassLoader cl = Thread.currentThread().getContextClassLoader();
+            if (cl == null) {
+                cl = ProwideAdapter.class.getClassLoader();
+            }
+            Class<?> clazz = Class.forName(fqn, false, cl);
+            if (AbstractMX.class.isAssignableFrom(clazz)) {
+                return (Class<? extends AbstractMX>) clazz;
+            }
+        } catch (ClassNotFoundException | NoClassDefFoundError ignored) {
+            return null;
+        } catch (Exception ignored) {
+            return null;
+        }
+        return null;
     }
 
     /**

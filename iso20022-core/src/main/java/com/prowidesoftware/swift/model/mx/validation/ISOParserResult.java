@@ -60,16 +60,37 @@ public final class ISOParserResult {
      */
     public enum ModelParsingStatus {
         SUCCESS,
+        MODEL_UNAVAILABLE,
+        PARSE_ERROR,
+        @Deprecated
         PROWIDE_MODEL_UNAVAILABLE_OR_PARSE_ERROR,
+        SKIPPED;
+
+        public boolean isUnavailableOrError() {
+            return this == MODEL_UNAVAILABLE || this == PARSE_ERROR || this == PROWIDE_MODEL_UNAVAILABLE_OR_PARSE_ERROR;
+        }
+    }
+
+    /**
+     * Fine-grained detail of the model parsing stage, distinguishing missing model classes
+     * from JAXB unmarshalling errors.
+     */
+    public enum ModelParsingDetail {
+        SUCCESS,
+        MODEL_UNAVAILABLE,
+        PARSE_ERROR,
         SKIPPED
     }
 
     private final ISOMessageIdentifier identifier;
     private final SchemaValidationStatus schemaStatus;
     private final ModelParsingStatus modelStatus;
+    private final ModelParsingDetail modelDetail;
     private final ValidationResult validationResult;
     private final AbstractMX parsedModel;
     private final String technicalError;
+    private final String businessMessageId;
+    private final com.prowidesoftware.swift.model.mx.validation.semantic.SemanticValidationResult semanticResult;
 
     // -------------------------------------------------------------------------
     // Private constructor — use the builder
@@ -79,9 +100,18 @@ public final class ISOParserResult {
         this.identifier = b.identifier;
         this.schemaStatus = b.schemaStatus;
         this.modelStatus = b.modelStatus;
+        this.modelDetail = b.modelDetail != null
+                ? b.modelDetail
+                : (b.modelStatus == ModelParsingStatus.SUCCESS
+                        ? ModelParsingDetail.SUCCESS
+                        : (b.modelStatus == ModelParsingStatus.SKIPPED
+                                ? ModelParsingDetail.SKIPPED
+                                : ModelParsingDetail.MODEL_UNAVAILABLE));
         this.validationResult = b.validationResult;
         this.parsedModel = b.parsedModel;
         this.technicalError = b.technicalError;
+        this.businessMessageId = b.businessMessageId;
+        this.semanticResult = b.semanticResult;
     }
 
     // -------------------------------------------------------------------------
@@ -104,6 +134,22 @@ public final class ISOParserResult {
     /** Model parsing outcome. Never {@code null}. */
     public ModelParsingStatus getModelStatus() {
         return modelStatus;
+    }
+
+    /** Detailed model parsing outcome. Never {@code null}. */
+    public ModelParsingDetail getModelDetail() {
+        return modelDetail;
+    }
+
+    /** Returns {@code true} when the generated model class was missing from runtime. */
+    public boolean isModelUnavailable() {
+        return modelDetail == ModelParsingDetail.MODEL_UNAVAILABLE
+                || modelStatus == ModelParsingStatus.MODEL_UNAVAILABLE;
+    }
+
+    /** Returns {@code true} when model class existed but unmarshalling failed. */
+    public boolean isModelParseError() {
+        return modelDetail == ModelParsingDetail.PARSE_ERROR || modelStatus == ModelParsingStatus.PARSE_ERROR;
     }
 
     /**
@@ -138,6 +184,16 @@ public final class ISOParserResult {
         return technicalError;
     }
 
+    /** Returns the business message ID from message content, or null if unidentifiable. */
+    public String getBusinessMessageId() {
+        return businessMessageId;
+    }
+
+    /** Returns the semantic validation result, or null if semantic validation was not run. */
+    public com.prowidesoftware.swift.model.mx.validation.semantic.SemanticValidationResult getSemanticResult() {
+        return semanticResult;
+    }
+
     /** Returns {@code true} when the XML passed XSD structural validation. */
     public boolean isSchemaValid() {
         return schemaStatus == SchemaValidationStatus.PASS;
@@ -165,6 +221,7 @@ public final class ISOParserResult {
                 + getValidationErrors().size()
                 + ", parsedModel="
                 + (parsedModel != null ? parsedModel.getClass().getSimpleName() : "null")
+                + (businessMessageId != null ? ", businessMessageId=" + businessMessageId : "")
                 + (technicalError != null ? ", technicalError=" + technicalError : "")
                 + '}';
     }
@@ -178,9 +235,12 @@ public final class ISOParserResult {
         private ISOMessageIdentifier identifier;
         private SchemaValidationStatus schemaStatus;
         private ModelParsingStatus modelStatus;
+        private ModelParsingDetail modelDetail;
         private ValidationResult validationResult;
         private AbstractMX parsedModel;
         private String technicalError;
+        private String businessMessageId;
+        private com.prowidesoftware.swift.model.mx.validation.semantic.SemanticValidationResult semanticResult;
 
         public Builder identifier(ISOMessageIdentifier identifier) {
             this.identifier = identifier;
@@ -197,6 +257,11 @@ public final class ISOParserResult {
             return this;
         }
 
+        public Builder modelDetail(ModelParsingDetail modelDetail) {
+            this.modelDetail = modelDetail;
+            return this;
+        }
+
         public Builder validationResult(ValidationResult validationResult) {
             this.validationResult = validationResult;
             return this;
@@ -209,6 +274,17 @@ public final class ISOParserResult {
 
         public Builder technicalError(String technicalError) {
             this.technicalError = technicalError;
+            return this;
+        }
+
+        public Builder businessMessageId(String businessMessageId) {
+            this.businessMessageId = businessMessageId;
+            return this;
+        }
+
+        public Builder semanticResult(
+                com.prowidesoftware.swift.model.mx.validation.semantic.SemanticValidationResult semanticResult) {
+            this.semanticResult = semanticResult;
             return this;
         }
 

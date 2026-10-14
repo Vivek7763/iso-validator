@@ -10,23 +10,45 @@ import java.util.Objects;
  * This DTO is completely decoupled from Prowide and internal orchestration details.
  */
 public final class ValidationResponse {
-    private final String messageId;
+    private final String messageType;
+    private final String businessMessageId;
     private final ResponseStatus status;
     private final List<FssError> errors;
 
-    public ValidationResponse(String messageId, ResponseStatus status, List<FssError> errors) {
-        // messageId can be null if the input was completely unidentifiable
-        this.messageId = messageId;
+    public ValidationResponse(
+            String messageType, String businessMessageId, ResponseStatus status, List<FssError> errors) {
+        this.messageType = messageType;
+        this.businessMessageId = businessMessageId;
         this.status = Objects.requireNonNull(status, "status must not be null");
         this.errors = errors != null ? Collections.unmodifiableList(new ArrayList<>(errors)) : Collections.emptyList();
+    }
+
+    public ValidationResponse(String messageId, ResponseStatus status, List<FssError> errors) {
+        this(messageId, null, status, errors);
     }
 
     /**
      * Returns the full message type identifier (e.g., "pacs.002.001.12"),
      * or null if the message type could not be determined.
      */
+    public String getMessageType() {
+        return messageType;
+    }
+
+    /**
+     * Returns the business message ID from message content (e.g., MsgId or BizMsgIdr),
+     * or null if not available.
+     */
+    public String getBusinessMessageId() {
+        return businessMessageId;
+    }
+
+    /**
+     * Backward-compatible accessor for the message type identifier.
+     * Prefer {@link #getMessageType()} or {@link #getBusinessMessageId()}.
+     */
     public String getMessageId() {
-        return messageId;
+        return messageType;
     }
 
     /**
@@ -45,8 +67,9 @@ public final class ValidationResponse {
 
     @Override
     public String toString() {
-        return "ValidationResponse{" + "messageId='"
-                + messageId + '\'' + ", status="
+        return "ValidationResponse{" + "messageType='"
+                + messageType + '\'' + ", businessMessageId='"
+                + businessMessageId + '\'' + ", status="
                 + status + ", errors="
                 + errors.size() + '}';
     }

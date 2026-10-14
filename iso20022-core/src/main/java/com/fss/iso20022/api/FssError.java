@@ -41,6 +41,38 @@ public final class FssError {
         return severity;
     }
 
+    public String getFieldPath() {
+        return category == ErrorCategory.SEMANTIC ? location : null;
+    }
+
+    public String getRuleId() {
+        return category == ErrorCategory.SEMANTIC ? code : null;
+    }
+
+    public Integer getLine() {
+        if (location != null && location.startsWith("Line: ")) {
+            int commaIdx = location.indexOf(',');
+            if (commaIdx > 6) {
+                try {
+                    return Integer.parseInt(location.substring(6, commaIdx).trim());
+                } catch (NumberFormatException ignored) {
+                }
+            }
+        }
+        return null;
+    }
+
+    public Integer getColumn() {
+        if (location != null && location.contains("Column: ")) {
+            int colIdx = location.indexOf("Column: ");
+            try {
+                return Integer.parseInt(location.substring(colIdx + 8).trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return null;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;

@@ -26,6 +26,20 @@ class ISOParserRegressionMatrixTest {
     }
 
     @Test
+    void validPacs02900102PassesSchemaAndJaxb() throws IOException {
+        ISOParserResult result = ISOParser.parse(fixture("pacs.029.001.02.xml"));
+
+        assertEquals(SchemaValidationStatus.PASS, result.getSchemaStatus());
+        assertEquals(ModelParsingStatus.SUCCESS, result.getModelStatus());
+        assertNotNull(result.getParsedModel());
+        assertEquals(
+                "com.prowidesoftware.swift.model.mx.MxPacs02900102",
+                result.getParsedModel().getClass().getName());
+        assertNotNull(result.getIdentifier());
+        assertEquals("pacs.029.001.02", result.getIdentifier().getFullMessageType());
+    }
+
+    @Test
     void validXmlWithSchemaButNoGeneratedModelStillPassesSchema() throws IOException {
         ISOParserResult result = ISOParser.parse(fixture("pacs.008.001.14.xml"));
 

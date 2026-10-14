@@ -24,8 +24,35 @@ public class SemanticValidationResult {
         this.technicalErrors.add(error);
     }
 
+    public boolean hasErrors() {
+        for (SemanticViolation v : violations) {
+            String sev = v.getSeverity();
+            if (sev != null && ("ERROR".equalsIgnoreCase(sev) || "FATAL".equalsIgnoreCase(sev))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean hasWarnings() {
+        for (SemanticViolation v : violations) {
+            String sev = v.getSeverity();
+            if (sev != null
+                    && ("WARNING".equalsIgnoreCase(sev)
+                            || "WARN".equalsIgnoreCase(sev)
+                            || "INFO".equalsIgnoreCase(sev))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean hasTechnicalErrors() {
+        return !technicalErrors.isEmpty();
+    }
+
     public boolean hasFailures() {
-        return !violations.isEmpty() || !technicalErrors.isEmpty();
+        return hasErrors() || hasTechnicalErrors();
     }
 
     public List<SemanticViolation> getViolations() {

@@ -73,14 +73,50 @@ class ValidationResponseBuilderTest {
 
         ValidationResponse response = ValidationResponseBuilder.build(result, semResult);
 
-        // Valid but contains a warning
-        assertThat(response.getStatus()).isEqualTo(ResponseStatus.VALID);
+        // Schema missing must return SCHEMA_UNAVAILABLE with FATAL technical error, never VALID
+        assertThat(response.getStatus()).isEqualTo(ResponseStatus.SCHEMA_UNAVAILABLE);
         assertThat(response.getErrors()).hasSize(1);
 
         FssError error = response.getErrors().get(0);
         assertThat(error.getCategory()).isEqualTo(ErrorCategory.TECHNICAL);
         assertThat(error.getCode()).isEqualTo("SCHEMA_NOT_FOUND");
-        assertThat(error.getSeverity()).isEqualTo("WARNING");
+        assertThat(error.getSeverity()).isEqualTo("FATAL");
+    }
+
+    @Test
+    void testSemanticWarningOnly_RemainsValid() {
+        SemanticValidationResult semResult = new SemanticValidationResult();
+        semResult.addViolation(new SemanticViolation("RULE_WARN", "WARNING", "Advice only", "GrpHdr"));
+
+        ISOParserResult result = new ISOParserResult.Builder()
+                .identifier(mockId)
+                .schemaStatus(ISOParserResult.SchemaValidationStatus.PASS)
+                .modelStatus(ISOParserResult.ModelParsingStatus.SUCCESS)
+                .parsedModel(mockModel)
+                .build();
+
+        ValidationResponse response = ValidationResponseBuilder.build(result, semResult);
+
+        assertThat(response.getStatus()).isEqualTo(ResponseStatus.VALID);
+        assertThat(response.getErrors()).hasSize(1);
+        assertThat(response.getErrors().get(0).getSeverity()).isEqualTo("WARNING");
+    }
+
+    @Test
+    void testBusinessMessageIdSeparation() {
+        ISOParserResult result = new ISOParserResult.Builder()
+                .identifier(mockId)
+                .businessMessageId("BIZ-MSG-999")
+                .schemaStatus(ISOParserResult.SchemaValidationStatus.PASS)
+                .modelStatus(ISOParserResult.ModelParsingStatus.SUCCESS)
+                .parsedModel(mockModel)
+                .build();
+
+        ValidationResponse response = ValidationResponseBuilder.build(result);
+
+        assertThat(response.getMessageType()).isEqualTo("pacs.002.001.12");
+        assertThat(response.getBusinessMessageId()).isEqualTo("BIZ-MSG-999");
+        assertThat(response.getMessageId()).isEqualTo("pacs.002.001.12");
     }
 
     @Test

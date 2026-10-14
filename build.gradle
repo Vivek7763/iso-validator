@@ -161,6 +161,28 @@ project(':iso20022-core') {
 		compileOnly 'jakarta.validation:jakarta.validation-api:3.1.1'
 		implementation 'org.springframework:spring-expression:5.3.39'
 
+		// Existing supported Prowide models made available to production runtime
+		runtimeOnly project(':model-acmt-mx')
+		runtimeOnly project(':model-acmt-types')
+		runtimeOnly project(':model-admi-mx')
+		runtimeOnly project(':model-admi-types')
+		runtimeOnly project(':model-camt-mx')
+		runtimeOnly project(':model-camt-types')
+		runtimeOnly project(':model-catm-mx')
+		runtimeOnly project(':model-catm-types')
+		runtimeOnly project(':model-fxtr-mx')
+		runtimeOnly project(':model-fxtr-types')
+		runtimeOnly project(':model-pacs-mx')
+		runtimeOnly project(':model-pacs-types')
+		runtimeOnly project(':model-pain-mx')
+		runtimeOnly project(':model-pain-types')
+		runtimeOnly project(':model-sese-mx')
+		runtimeOnly project(':model-sese-types')
+		runtimeOnly project(':model-seev-mx')
+		runtimeOnly project(':model-seev-types')
+		runtimeOnly project(':model-xsys-mx')
+		runtimeOnly project(':model-xsys-types')
+
 		testImplementation "jakarta.persistence:jakarta.persistence-api:${jakartaPersistenceVersion}"
 		testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
 		testImplementation 'com.google.guava:guava:33.7.1-jre'

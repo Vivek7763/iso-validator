@@ -55,4 +55,36 @@ public class SemanticRuleLoaderTest {
                 assertThrows(IllegalArgumentException.class, () -> SemanticRuleLoader.loadJsonRules(is));
         assertTrue(e.getMessage().contains("expression is required"));
     }
+
+    @Test
+    void testLoadSingleJsonObject() {
+        String json = "{\n"
+                + "  \"ruleId\": \"CHK-SINGLE\",\n"
+                + "  \"messageType\": \"pacs.002.001.12\",\n"
+                + "  \"severity\": \"WARNING\",\n"
+                + "  \"errorPath\": \"GrpHdr/MsgId\",\n"
+                + "  \"expression\": \"true\",\n"
+                + "  \"message\": \"Single object rule\"\n"
+                + "}";
+        InputStream is = new ByteArrayInputStream(json.getBytes(StandardCharsets.UTF_8));
+        List<SemanticRuleDefinition> rules = SemanticRuleLoader.loadJsonRules(is);
+
+        assertEquals(1, rules.size());
+        assertEquals("CHK-SINGLE", rules.get(0).getRuleId());
+        assertEquals("pacs.002.001.12", rules.get(0).getMessageType());
+        assertEquals("WARNING", rules.get(0).getSeverity());
+    }
+
+    @Test
+    void testDuplicateRuleIdRejected() {
+        String json = "[\n"
+                + "  {\"ruleId\": \"DUP-1\", \"messageType\": \"pacs.002\", \"severity\": \"FATAL\", \"errorPath\": \"A\", \"expression\": \"true\"},\n"
+                + "  {\"ruleId\": \"DUP-1\", \"messageType\": \"pacs.002\", \"severity\": \"FATAL\", \"errorPath\": \"B\", \"expression\": \"false\"}\n"
+                + "]";
+        InputStream is = new ByteArrayInputStream(json.getBytes(StandardCharsets.UTF_8));
+
+        IllegalArgumentException e =
+                assertThrows(IllegalArgumentException.class, () -> SemanticRuleLoader.loadJsonRules(is));
+        assertTrue(e.getMessage().contains("Duplicate rule ID detected: DUP-1"));
+    }
 }

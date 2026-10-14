@@ -43,6 +43,30 @@ public final class SchemaRegistry {
     private static volatile String baseSchemasDir = DEFAULT_SCHEMAS_BASE_DIR;
     private static final Map<String, Schema> schemaCache = new ConcurrentHashMap<>();
 
+    /**
+     * Provenance classification of registered schemas.
+     */
+    public enum SchemaProvenance {
+        /** Official ISO 20022 publication. */
+        VERIFIED_OFFICIAL_ISO,
+        /** Synthetic or test fixture schema, unverified for production authority. */
+        TEST_FIXTURE_UNVERIFIED
+    }
+
+    /**
+     * Returns the provenance status of a registered schema.
+     *
+     * @param identifier message identifier or namespace
+     * @return the schema provenance
+     */
+    public static SchemaProvenance getProvenance(String identifier) {
+        String id = normalise(identifier);
+        if ("head.001.001.01".equals(id)) {
+            return SchemaProvenance.TEST_FIXTURE_UNVERIFIED;
+        }
+        return SchemaProvenance.VERIFIED_OFFICIAL_ISO;
+    }
+
     private SchemaRegistry() {}
 
     /**
@@ -97,6 +121,7 @@ public final class SchemaRegistry {
         if (schemaUrl != null) {
             try {
                 SchemaFactory sf = SafeXmlUtils.schemaFactory();
+                configureSecureSchemaFactory(sf);
                 sf.setResourceResolver(new ClasspathResourceResolver());
                 Schema schema = sf.newSchema(schemaUrl);
                 schemaCache.put(identifier, schema);
@@ -115,12 +140,24 @@ public final class SchemaRegistry {
 
         try {
             SchemaFactory sf = SafeXmlUtils.schemaFactory();
+            configureSecureSchemaFactory(sf);
             sf.setResourceResolver(new ClasspathResourceResolver());
             Schema schema = sf.newSchema(schemaFile);
             schemaCache.put(identifier, schema);
             return schema;
         } catch (Exception e) {
             throw new SchemaCompilationException(identifier, e);
+        }
+    }
+
+    private static void configureSecureSchemaFactory(SchemaFactory sf) {
+        try {
+            sf.setProperty(javax.xml.XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+        } catch (Exception ignored) {
+        }
+        try {
+            sf.setProperty(javax.xml.XMLConstants.ACCESS_EXTERNAL_DTD, "");
+        } catch (Exception ignored) {
         }
     }
 

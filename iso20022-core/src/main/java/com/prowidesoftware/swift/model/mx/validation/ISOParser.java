@@ -47,7 +47,65 @@ public final class ISOParser {
 
     private static final Logger log = Logger.getLogger(ISOParser.class.getName());
 
-    private ISOParser() {}
+    private static volatile com.prowidesoftware.swift.model.mx.validation.semantic.SemanticRuleEngine
+            defaultSemanticEngine;
+
+    /**
+     * Resolves the default production semantic rule engine, loading rules lazily from {@code /semantic/rules.json}.
+     *
+     * @return the default SemanticRuleEngine; never {@code null}
+     */
+    public static com.prowidesoftware.swift.model.mx.validation.semantic.SemanticRuleEngine getDefaultSemanticEngine() {
+        if (defaultSemanticEngine == null) {
+            synchronized (ISOParser.class) {
+                if (defaultSemanticEngine == null) {
+                    com.prowidesoftware.swift.model.mx.validation.semantic.SemanticRuleEngine engine =
+                            new com.prowidesoftware.swift.model.mx.validation.semantic.SemanticRuleEngine(
+                                    new com.prowidesoftware.swift.model.mx.validation.semantic.SpELRuleEvaluator());
+                    try (java.io.InputStream is = ISOParser.class.getResourceAsStream("/semantic/rules.json")) {
+                        if (is != null) {
+                            java.util.List<
+                                            com.prowidesoftware.swift.model.mx.validation.semantic
+                                                    .SemanticRuleDefinition>
+                                    rules = com.prowidesoftware.swift.model.mx.validation.semantic.SemanticRuleLoader
+                                            .loadJsonRules(is);
+                            for (com.prowidesoftware.swift.model.mx.validation.semantic.SemanticRuleDefinition rule :
+                                    rules) {
+                                engine.addRule(rule);
+                            }
+                        }
+                    } catch (Exception e) {
+                        log.log(Level.WARNING, "Failed to load default semantic rules from /semantic/rules.json", e);
+                    }
+                    defaultSemanticEngine = engine;
+                }
+            }
+        }
+        return defaultSemanticEngine;
+    }
+
+    /**
+     * Overrides the default semantic rule engine (useful for testing or runtime configuration).
+     *
+     * @param engine the engine to use as default, or {@code null} to reset to lazy classpath loading
+     */
+    public static void setDefaultSemanticEngine(
+            com.prowidesoftware.swift.model.mx.validation.semantic.SemanticRuleEngine engine) {
+        synchronized (ISOParser.class) {
+            defaultSemanticEngine = engine;
+        }
+    }
+
+    /**
+     * Parses and validates an ISO 20022 XML message using the default semantic validation rules.
+     *
+     * @param xml the raw XML string; must not be {@code null}
+     * @return a fully-populated {@link ISOParserResult}; never {@code null}
+     * @throws IllegalArgumentException if {@code xml} is {@code null}
+     */
+    public static ISOParserResult parse(String xml) {
+        return parse(xml, getDefaultSemanticEngine(), null);
+    }
 
     /**
      * Parses and validates an ISO 20022 XML message without semantic validation.
@@ -56,7 +114,34 @@ public final class ISOParser {
      * @return a fully-populated {@link ISOParserResult}; never {@code null}
      * @throws IllegalArgumentException if {@code xml} is {@code null}
      */
-    public static ISOParserResult parse(String xml) {
+    public static ISOParserResult parseWithoutSemanticValidation(String xml) {
+        return parse(xml, null, null);
+    }
+
+    /**
+     * Parses and validates an ISO 20022 XML message with semantic validation.
+     *
+     * @param xml the raw XML string; must not be {@code null}
+     * @param semanticEngine rule engine to execute against the parsed model; may be {@code null}
+     * @return a fully-populated {@link ISOParserResult}; never {@code null}
+     */
+    public static ISOParserResult parse(
+            String xml, com.prowidesoftware.swift.model.mx.validation.semantic.SemanticRuleEngine semanticEngine) {
+        return parse(xml, semanticEngine, null);
+    }
+
+    /**
+     * Parses and validates an ISO 20022 XML message with semantic validation and context.
+     *
+     * @param xml the raw XML string; must not be {@code null}
+     * @param semanticEngine rule engine to execute against the parsed model; may be {@code null}
+     * @param context contextual parameters such as active profile; may be {@code null}
+     * @return a fully-populated {@link ISOParserResult}; never {@code null}
+     */
+    public static ISOParserResult parse(
+            String xml,
+            com.prowidesoftware.swift.model.mx.validation.semantic.SemanticRuleEngine semanticEngine,
+            com.prowidesoftware.swift.model.mx.validation.semantic.RuleContext context) {
         if (xml == null) {
             throw new IllegalArgumentException("xml must not be null");
         }
@@ -69,6 +154,7 @@ public final class ISOParser {
                     .identifier(null)
                     .schemaStatus(ISOParserResult.SchemaValidationStatus.UNIDENTIFIABLE_INPUT)
                     .modelStatus(ISOParserResult.ModelParsingStatus.PROWIDE_MODEL_UNAVAILABLE_OR_PARSE_ERROR)
+                    .modelDetail(ISOParserResult.ModelParsingDetail.MODEL_UNAVAILABLE)
                     .build();
         }
 
@@ -86,6 +172,7 @@ public final class ISOParser {
                         -1));
                 return new ISOParserResult.Builder()
                         .identifier(identifier)
+                        .businessMessageId(info.getBusinessMessageId())
                         .schemaStatus(ISOParserResult.SchemaValidationStatus.FAIL)
                         .modelStatus(ISOParserResult.ModelParsingStatus.SKIPPED)
                         .validationResult(validationResult)
@@ -144,6 +231,7 @@ public final class ISOParser {
         if (schemaStatus == ISOParserResult.SchemaValidationStatus.FAIL) {
             return new ISOParserResult.Builder()
                     .identifier(identifier)
+                    .businessMessageId(info.getBusinessMessageId())
                     .schemaStatus(schemaStatus)
                     .modelStatus(ISOParserResult.ModelParsingStatus.SKIPPED)
                     .validationResult(validationResult)
@@ -152,17 +240,50 @@ public final class ISOParser {
         }
 
         // ── STEP 4: MODEL PARSING ──────────────────────────────────────────
-        AbstractMX parsedModel = ProwideAdapter.parseToModel(xml);
-        ISOParserResult.ModelParsingStatus modelStatus = parsedModel != null
-                ? ISOParserResult.ModelParsingStatus.SUCCESS
-                : ISOParserResult.ModelParsingStatus.PROWIDE_MODEL_UNAVAILABLE_OR_PARSE_ERROR;
+        boolean modelAvailable = ProwideAdapter.isModelAvailable(identifier);
+        AbstractMX parsedModel = null;
+        ISOParserResult.ModelParsingStatus modelStatus;
+        ISOParserResult.ModelParsingDetail modelDetail;
+
+        if (!modelAvailable) {
+            modelStatus = ISOParserResult.ModelParsingStatus.PROWIDE_MODEL_UNAVAILABLE_OR_PARSE_ERROR;
+            modelDetail = ISOParserResult.ModelParsingDetail.MODEL_UNAVAILABLE;
+        } else {
+            parsedModel = ProwideAdapter.parseToModel(xml);
+            if (parsedModel != null) {
+                modelStatus = ISOParserResult.ModelParsingStatus.SUCCESS;
+                modelDetail = ISOParserResult.ModelParsingDetail.SUCCESS;
+            } else {
+                modelStatus = ISOParserResult.ModelParsingStatus.PROWIDE_MODEL_UNAVAILABLE_OR_PARSE_ERROR;
+                modelDetail = ISOParserResult.ModelParsingDetail.PARSE_ERROR;
+            }
+        }
+
+        // ── STEP 5: SEMANTIC VALIDATION ────────────────────────────────────
+        com.prowidesoftware.swift.model.mx.validation.semantic.SemanticValidationResult semanticResult = null;
+        if (parsedModel != null && semanticEngine != null) {
+            try {
+                semanticResult = semanticEngine.validate(parsedModel, context);
+            } catch (Exception e) {
+                if (semanticResult == null) {
+                    semanticResult =
+                            new com.prowidesoftware.swift.model.mx.validation.semantic.SemanticValidationResult();
+                }
+                semanticResult.addTechnicalError(
+                        new com.prowidesoftware.swift.model.mx.validation.semantic.TechnicalEvaluationError(
+                                "SEMANTIC_ENGINE", "Semantic validation execution failed: " + e.getMessage()));
+            }
+        }
 
         return new ISOParserResult.Builder()
                 .identifier(identifier)
+                .businessMessageId(info.getBusinessMessageId())
                 .schemaStatus(schemaStatus)
                 .modelStatus(modelStatus)
+                .modelDetail(modelDetail)
                 .validationResult(validationResult)
                 .parsedModel(parsedModel)
+                .semanticResult(semanticResult)
                 .technicalError(technicalError)
                 .build();
     }

@@ -13,15 +13,23 @@ public class SemanticRuleEngine {
     }
 
     public void addRule(SemanticRuleDefinition rule) {
-        if (rule.getRuleId() == null || rule.getRuleId().isEmpty())
+        if (rule == null) {
+            throw new IllegalArgumentException("rule must not be null");
+        }
+        if (rule.getRuleId() == null || rule.getRuleId().trim().isEmpty())
             throw new IllegalArgumentException("ruleId is required");
-        if (rule.getMessageType() == null || rule.getMessageType().isEmpty())
+        for (SemanticRuleDefinition existing : rules) {
+            if (existing.getRuleId().equals(rule.getRuleId())) {
+                throw new IllegalArgumentException("Duplicate rule ID: " + rule.getRuleId());
+            }
+        }
+        if (rule.getMessageType() == null || rule.getMessageType().trim().isEmpty())
             throw new IllegalArgumentException("messageType is required");
-        if (rule.getExpression() == null || rule.getExpression().isEmpty())
+        if (rule.getExpression() == null || rule.getExpression().trim().isEmpty())
             throw new IllegalArgumentException("expression is required");
-        if (rule.getSeverity() == null || rule.getSeverity().isEmpty())
+        if (rule.getSeverity() == null || rule.getSeverity().trim().isEmpty())
             throw new IllegalArgumentException("severity is required");
-        if (rule.getErrorPath() == null || rule.getErrorPath().isEmpty())
+        if (rule.getErrorPath() == null || rule.getErrorPath().trim().isEmpty())
             throw new IllegalArgumentException("errorPath is required");
         rules.add(rule);
     }
@@ -31,6 +39,9 @@ public class SemanticRuleEngine {
     }
 
     public SemanticValidationResult validate(AbstractMX model, RuleContext context) {
+        if (model == null) {
+            throw new IllegalArgumentException("model must not be null");
+        }
         SemanticValidationResult result = new SemanticValidationResult();
 
         String modelProcess = model.getBusinessProcess();
@@ -41,12 +52,18 @@ public class SemanticRuleEngine {
         String canonicalVersion = String.format("%02d", model.getVersion());
 
         for (SemanticRuleDefinition rule : rules) {
-            // Rule Applicability
-            if (rule.getMessageType() != null && !modelId.startsWith(rule.getMessageType())) {
-                continue;
+            // Rule Applicability: exact match or dot-boundary prefix (e.g. "pacs.002" matches "pacs.002.001.12")
+            if (rule.getMessageType() != null) {
+                String targetType = rule.getMessageType().trim();
+                boolean matches = modelId.equals(targetType) || modelId.startsWith(targetType + ".");
+                if (!matches) {
+                    continue;
+                }
             }
             if (rule.getVersions() != null && !rule.getVersions().isEmpty()) {
-                if (!rule.getVersions().contains(canonicalVersion)) {
+                String vRaw = String.valueOf(model.getVersion());
+                if (!rule.getVersions().contains(canonicalVersion)
+                        && !rule.getVersions().contains(vRaw)) {
                     continue;
                 }
             }

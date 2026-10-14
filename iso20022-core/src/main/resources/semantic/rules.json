@@ -1,0 +1,42 @@
+[
+  {
+    "ruleId": "CBPR_PACS002_01",
+    "messageType": "pacs.002.001.12",
+    "severity": "FATAL",
+    "errorPath": "FIToFIPmtStsRpt/TxInfAndSts/StsRsnInf",
+    "message": "Status Reason Information is mandatory when Transaction Status is RJCT.",
+    "expression": "FIToFIPmtStsRpt == null ? true : FIToFIPmtStsRpt.txInfAndSts.?[txSts == 'RJCT' and stsRsnInf.empty].empty"
+  },
+  {
+    "ruleId": "VR-002",
+    "messageType": "pacs.002.001.12",
+    "severity": "FATAL",
+    "errorPath": "FIToFIPmtStsRpt/TxInfAndSts/OrgnlInstrId",
+    "message": "Original Instruction ID is mandatory in Transaction Information.",
+    "expression": "FIToFIPmtStsRpt?.txInfAndSts == null ? true : FIToFIPmtStsRpt.txInfAndSts.?[orgnlInstrId == null or orgnlInstrId.trim().isEmpty()].empty"
+  },
+  {
+    "ruleId": "VR-003",
+    "messageType": "pacs.002.001.12",
+    "severity": "FATAL",
+    "errorPath": "FIToFIPmtStsRpt/GrpHdr/MsgId",
+    "message": "Group Header Message ID is mandatory and non-empty.",
+    "expression": "FIToFIPmtStsRpt?.grpHdr?.msgId != null and !FIToFIPmtStsRpt.grpHdr.msgId.trim().isEmpty()"
+  },
+  {
+    "ruleId": "VR-004",
+    "messageType": "pacs.008.001.07",
+    "severity": "WARNING",
+    "errorPath": "FIToFICstmrCdtTrf/GrpHdr/SttlmInf/SttlmMtd",
+    "message": "Settlement Method should be INDA for instructed agent settlement.",
+    "expression": "FIToFICstmrCdtTrf?.grpHdr?.sttlmInf?.sttlmMtd?.value() == 'INDA'"
+  },
+  {
+    "ruleId": "VR-005",
+    "messageType": "pain.001.001.11",
+    "severity": "FATAL",
+    "errorPath": "CstmrCdtTrfInitn/GrpHdr/NbOfTxs",
+    "message": "Number of Transactions in Group Header is mandatory and non-empty.",
+    "expression": "CstmrCdtTrfInitn?.grpHdr?.nbOfTxs != null and !CstmrCdtTrfInitn.grpHdr.nbOfTxs.trim().isEmpty()"
+  }
+]

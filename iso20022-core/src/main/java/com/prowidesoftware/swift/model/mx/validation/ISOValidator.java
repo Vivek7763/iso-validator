@@ -56,7 +56,17 @@ public final class ISOValidator {
         if (appHdrIdentifier != null) {
             try {
                 Schema appHdrSchema = SchemaRegistry.resolve(appHdrIdentifier);
-                validateSubtree(xml, appHdrSchema, "AppHdr", result, "[AppHdr] ");
+                validateSubtree(xml, appHdrSchema, "AppHdr", appHdrIdentifier.getNamespace(), result, "[AppHdr] ");
+                if (SchemaRegistry.getProvenance(appHdrIdentifier.getFullMessageType())
+                        == SchemaRegistry.SchemaProvenance.TEST_FIXTURE_UNVERIFIED) {
+                    result.addError(new ValidationError(
+                            "WARNING",
+                            "[AppHdr] Validated against unverified test fixture schema ("
+                                    + appHdrIdentifier.getFullMessageType()
+                                    + "). Authoritative ISO AppHdr production schema not yet verified.",
+                            -1,
+                            -1));
+                }
             } catch (SchemaRegistry.SchemaNotFoundException e) {
                 // If AppHdr schema is missing, it's missing. Add a warning or let it be.
                 result.addError(new ValidationError(
@@ -66,13 +76,18 @@ public final class ISOValidator {
 
         // Validate Document
         Schema docSchema = SchemaRegistry.resolve(docIdentifier);
-        validateSubtree(xml, docSchema, "Document", result, "");
+        validateSubtree(xml, docSchema, "Document", docIdentifier.getNamespace(), result, "");
 
         return result;
     }
 
     private static void validateSubtree(
-            String xml, Schema schema, String targetElement, ValidationResult result, String errorPrefix)
+            String xml,
+            Schema schema,
+            String targetElement,
+            String targetNamespace,
+            ValidationResult result,
+            String errorPrefix)
             throws Exception {
         XMLReader baseReader = SafeXmlUtils.reader(true, null);
 
@@ -93,8 +108,20 @@ public final class ISOValidator {
             @Override
             public void startElement(String uri, String localName, String qName, org.xml.sax.Attributes atts)
                     throws SAXException {
-                if (!inTarget && targetElement.equals(localName)) {
-                    inTarget = true;
+                boolean nameMatches = targetElement.equals(localName)
+                        || ((localName == null || localName.isEmpty())
+                                && (targetElement.equals(qName)
+                                        || (qName != null && qName.endsWith(":" + targetElement))));
+                if (!inTarget && nameMatches) {
+                    if (targetNamespace == null
+                            || targetNamespace.isEmpty()
+                            || uri == null
+                            || uri.isEmpty()
+                            || targetNamespace.equals(uri)
+                            || uri.endsWith(":" + targetNamespace)
+                            || targetNamespace.endsWith(":" + uri)) {
+                        inTarget = true;
+                    }
                 }
                 if (inTarget) {
                     depth++;
@@ -132,6 +159,14 @@ public final class ISOValidator {
         SAXSource saxSource = new SAXSource(filter, source);
 
         Validator validator = schema.newValidator();
+        try {
+            validator.setProperty(javax.xml.XMLConstants.ACCESS_EXTERNAL_DTD, "");
+        } catch (Exception ignored) {
+        }
+        try {
+            validator.setProperty(javax.xml.XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+        } catch (Exception ignored) {
+        }
         validator.setErrorHandler(new ErrorHandler() {
             @Override
             public void warning(SAXParseException ex) throws SAXException {

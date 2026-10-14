@@ -18,5 +18,11 @@ public enum ResponseStatus {
      * The system encountered an unrecoverable technical error processing the message
      * (e.g. missing JAXB model, semantic engine crash, malformed XML).
      */
-    SYSTEM_ERROR
+    SYSTEM_ERROR,
+
+    /**
+     * The authoritative XSD schema for the message type is unavailable,
+     * so complete structural validation could not be performed.
+     */
+    SCHEMA_UNAVAILABLE
 }
